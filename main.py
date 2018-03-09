@@ -67,7 +67,7 @@ def get_data_by_class(labeled_data, label):
 # Gets the value of a key in a dictionary
 def get_dict_section(labeled_data, key):
     res = np.array([])
-    for i in range(labeled_data.size):
+    for i in range(0, labeled_data.size):
         if i == 0:
             res = [labeled_data[i][key]]
         else:
@@ -78,7 +78,7 @@ def get_dict_section(labeled_data, key):
 # Get loss of gene per image
 def loss_per_image(w_row, label):
     loss = 0
-    for n in range(w_row.size):
+    for n in range(0, w_row.size):
         if n != label:
             loss = loss + max(0, w_row[n] - w_row[label] + 1)
     return loss
@@ -87,17 +87,22 @@ def loss_per_image(w_row, label):
 # Partial Hinge loss function (doesn't add and normalize)
 def partial_hinge_loss(gene_results):
     ordered_labels = get_dict_section(train_data, 'label')
-    loss_per_class = np.zeros(ordered_labels.size)
+    lpi = np.ndarray([])
 
-    for n in range(ordered_labels.size):
-        loss_per_class[n] = loss_per_image(gene_results[n], ordered_labels[n])
+    for n in range(0, ordered_labels.size):
+        if n == 1:
+            lpi = [{'lpi': loss_per_image(gene_results[n], ordered_labels[n]), 'label': ordered_labels[n]}]
+        else:
+            lpi = np.append(lpi, [{'lpi': loss_per_image(gene_results[n], ordered_labels[n]),
+                                   'label': ordered_labels[n]}], axis=1)
 
-    return loss_per_class
+    return lpi
 
 
 # Get classify results of a gene
 def test_gene(gene):
     gene_results = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), gene['w'])
+    lpi = partial_hinge_loss(gene_results)
 
     gene['loss-per-class'] = partial_hinge_loss(gene_results)
     gene['loss'] = np.sum(gene['loss-per-class']) / gene['loss-per-class'].size
@@ -109,8 +114,8 @@ def test_gene(gene):
 def test_generation(generation):
     global current_generation
 
-    for n in range(generation.size):
-        current_generation[n] = test_gene(current_generation[n])
+    vectorized_testing = np.vectorize(test_gene)
+    current_generation = vectorized_testing(current_generation)
 
 
 # Creates a new gene
@@ -136,7 +141,7 @@ def init(population, is_cifar=False, test_data_amount=0):
                                       axis=0), 0, 1)
 
         mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=False)
-        indexes_to_remove = np.random.choice(range(mapped_data.size), test_data_amount, replace=False)
+        indexes_to_remove = np.random.choice(range(0, mapped_data.size), test_data_amount, replace=False)
 
         test_data = np.take(mapped_data, indexes_to_remove)
         train_data = np.delete(mapped_data, indexes_to_remove)
@@ -148,7 +153,7 @@ def init(population, is_cifar=False, test_data_amount=0):
         std_dev = np.std(iris_train_data, dtype=np.float32)
 
     generations_number = 1
-    for i in range(population):
+    for i in range(0, population):
         if i == 0:
             current_generation = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)]
         else:
@@ -198,9 +203,11 @@ def main():
     print(np.matmul(current_generation[0]['w'], iris_train_data[0]))
     print('Total Classification Test -------------------')
     # print(get_dict_section(train_data, 'data'))
-    # vectorized_testing = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), current_generation[0]['w'])
-    print(test_gene(current_generation[0]))
-    print(test_gene(current_generation[0])['loss-per-class'].size)
+    # vectorized_testing = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data')
+    # , current_generation[0]['w'])
+    test_generation(current_generation)
+    print(current_generation)
+    # print(test_gene(current_generation[0])['loss-per-class'].size)
     # print(np.apply_along_axis(lambda x: for n = range(x.size): if n != 0: x[n] = 0, vectorized_testing))
 
     # print(train_data)
