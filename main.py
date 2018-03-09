@@ -51,6 +51,11 @@ def map_single_row(data, label):
     return {'label': label, 'data': data}
 
 
+# Array multiplication for vectorizing purposes
+def matrix_mult(y, x):
+    return np.matmul(x, y)
+
+
 # Get all the data of a certain class
 def get_data_by_class(labeled_data, label):
     if labeled_data['label'] == label:
@@ -70,10 +75,50 @@ def get_dict_section(labeled_data, key):
     return res
 
 
+# Get loss of gene per image
+def loss_per_image(w_row, label):
+    loss = 0
+    for n in range(w_row.size):
+        if n != label:
+            loss = loss + max(0, w_row[n] - w_row[label] + 1)
+    return loss
+
+
+# Partial Hinge loss function (doesn't add and normalize)
+def partial_hinge_loss(gene_results):
+    ordered_labels = get_dict_section(train_data, 'label')
+    loss_per_class = np.zeros(ordered_labels.size)
+
+    for n in range(ordered_labels.size):
+        loss_per_class[n] = loss_per_image(gene_results[n], ordered_labels[n])
+
+    return loss_per_class
+
+
+# Get classify results of a gene
+def test_gene(gene):
+    gene_results = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), gene['w'])
+
+    gene['loss-per-class'] = partial_hinge_loss(gene_results)
+    gene['loss'] = np.sum(gene['loss-per-class']) / gene['loss-per-class'].size
+
+    return gene
+
+
+# Classify whole generation
+def test_generation(generation):
+    global current_generation
+
+    for n in range(generation.size):
+        current_generation[n] = test_gene(current_generation[n])
+
+
 # Creates a new gene
 def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.0):
     if value_selection_method == 'normal':
-        return abs(np.random.standard_normal(size=(rows, columns + 1)) * dev) + mean
+        return {'loss': 0,
+                'loss-per-class': np.zeros(class_amount),
+                'w': abs(np.random.standard_normal(size=(rows, columns)) * dev) + mean }
 
 
 # Initialize variables and constants for better performance but keeping flexibility
@@ -84,6 +129,12 @@ def init(population, is_cifar=False, test_data_amount=0):
     if is_cifar:
         return
     else:
+        # Add 1s to iris data for bias trick
+        global iris_train_data
+        iris_train_data = np.swapaxes(np.append(np.swapaxes(iris_train_data, 0, 1),
+                                      [np.zeros(np.ma.size(np.swapaxes(iris_train_data, 0, 1), axis=1)) + 1],
+                                      axis=0), 0, 1)
+
         mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=False)
         indexes_to_remove = np.random.choice(range(mapped_data.size), test_data_amount, replace=False)
 
@@ -99,10 +150,10 @@ def init(population, is_cifar=False, test_data_amount=0):
     generations_number = 1
     for i in range(population):
         if i == 0:
-            current_generation = [create_gene(class_amount, data_columns_amount+1, mean=median, dev=std_dev)]
+            current_generation = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)]
         else:
             current_generation = np.append(current_generation,
-                                           [create_gene(class_amount, data_columns_amount+1, mean=median, dev=std_dev)],
+                                           [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)],
                                            axis=0)
 
 
@@ -118,16 +169,17 @@ def init(population, is_cifar=False, test_data_amount=0):
 # Generate new W from between ranges
 # def generate_w(ranges, amount):
 def main():
+    global iris_train_data
     # Hyper-Parameters
     generations = 100
     population = 100
     mutation_percentage = 0.01
 
     init(population)
-    print('Test Data -----------------------------------')
-    print(test_data)
-    print('Train Data ----------------------------------')
-    print(train_data)
+    # print('Test Data -----------------------------------')
+    # print(test_data)
+    # print('Train Data ----------------------------------')
+    # print(train_data)
     print('Median --------------------------------------')
     print(median)
     print('Standard Deviation --------------------------')
@@ -136,8 +188,20 @@ def main():
     print(class_amount)
     print('Columns -------------------------------------')
     print(data_columns_amount)
-    print('Gen 1 ---------------------------------------')
-    print(current_generation)
+    # print('Gen 1 ---------------------------------------')
+    # print(current_generation)
+    print('Gen 1,0 -------------------------------------')
+    print(current_generation[0])
+    print('Iris 0 --------------------------------------')
+    print(iris_train_data[0])
+    print('Matrix Mult ---------------------------------')
+    print(np.matmul(current_generation[0]['w'], iris_train_data[0]))
+    print('Total Classification Test -------------------')
+    # print(get_dict_section(train_data, 'data'))
+    # vectorized_testing = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), current_generation[0]['w'])
+    print(test_gene(current_generation[0]))
+    print(test_gene(current_generation[0])['loss-per-class'].size)
+    # print(np.apply_along_axis(lambda x: for n = range(x.size): if n != 0: x[n] = 0, vectorized_testing))
 
     # print(train_data)
     # print(train_labels)
