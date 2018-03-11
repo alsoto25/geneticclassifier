@@ -3,16 +3,22 @@ import pickle as pk
 import numba as nb
 import scipy
 import time
+import random
+import matplotlib.pyplot as plt
+from pathlib import Path
 from sklearn.datasets import load_iris
 
 # --- Global Constants ---
 normal_distribution_mean = 0
+vectorized_gene_testing = 0
+get_all_data_by_class = 0
 
 # CIFAR Constants
 data_dir = './cifar/'
 data_sets_length = 10000
 train_data_sets_amount = 5
 train_data_set_basename = 'data_batch_'
+greyscale_name = 'gs_'
 
 test_data_set_name = 'test_batch'
 
@@ -34,8 +40,55 @@ data_columns_amount = 0
 median = 0
 std_dev = 1
 
-current_generation = np.ndarray([])
+current_generation = np.asarray([])
 generations_number = 0
+
+
+# Pickle greyscaled data
+def pickle(directory, src):
+    #if not Path(directory + greyscale_name + src).is_file():
+    file = unpickle(directory + src)
+
+    new_pickle = {
+        b'batch_label': file[b'batch_label'],
+        b'labels': file[b'labels'],
+        b'filenames': file[b'filenames'],
+        b'data': np.asarray(greyscale_all_data(file[b'data']), dtype=np.int32)
+    }
+
+    print(new_pickle[b'data'].shape)
+
+    with open(directory + greyscale_name + src, 'wb') as fo:
+        pk.dump(new_pickle, fo)
+
+    return new_pickle
+    # else:
+    #     return {}
+
+
+# Returns dictionary with unpickled CIFAR data
+def unpickle(file):
+    with open(file, 'rb') as fo:
+        return pk.load(fo, encoding='bytes')
+
+
+# Turn cifar images to greyscale
+def greyscale_all_data(data):
+    return np.apply_along_axis(greyscale_image, 1, data)
+
+
+# Turn array greyscale
+def greyscale_image(arr):
+    vectorized_greyscale_img = nb.vectorize(greyscale_pixel)
+    split_arr = np.split(arr, 3)
+
+    res = vectorized_greyscale_img(split_arr[0], split_arr[1], split_arr[2])
+
+    return res
+
+
+def greyscale_pixel(r, g, b):
+    return int(round(0.2989 * r + 0.5870 * g + 0.1140 * b * 2))
 
 
 # Generate dictionary with labels, data and ids
@@ -64,14 +117,22 @@ def get_data_by_class(labeled_data, label):
         return
 
 
-# Gets the value of a key in a dictionary
+# Gets the index of the probability in the array
+def index_of_prob_array(arr, rnd):
+    for n in range(arr.size):
+        if arr[n] >= rnd:
+            return n
+
+
+# Gets the value of a key in a dictionary list
 def get_dict_section(labeled_data, key):
     res = np.array([])
     for i in range(0, labeled_data.size):
-        if i == 0:
-            res = [labeled_data[i][key]]
-        else:
-            res = np.append(res, [labeled_data[i][key]], axis=0)
+        if labeled_data[i] != np.array(None):
+            if i == 0:
+                res = [labeled_data[i][key]]
+            else:
+                res = np.append(res, [labeled_data[i][key]], axis=0)
     return res
 
 
@@ -87,35 +148,156 @@ def loss_per_image(w_row, label):
 # Partial Hinge loss function (doesn't add and normalize)
 def partial_hinge_loss(gene_results):
     ordered_labels = get_dict_section(train_data, 'label')
-    lpi = np.ndarray([])
+    lpi = np.asarray([])
 
     for n in range(0, ordered_labels.size):
-        if n == 1:
+        if n == 0:
             lpi = [{'lpi': loss_per_image(gene_results[n], ordered_labels[n]), 'label': ordered_labels[n]}]
         else:
             lpi = np.append(lpi, [{'lpi': loss_per_image(gene_results[n], ordered_labels[n]),
-                                   'label': ordered_labels[n]}], axis=1)
+                                   'label': ordered_labels[n]}], axis=0)
 
     return lpi
 
 
-# Get classify results of a gene
+# Cross 2 genes
+def cross_genes(p1, p2, mutation):
+    child_w = np.asarray([])
+
+    is_mutated = False
+    if random.uniform(0, 1) <= mutation:
+        is_mutated = True
+
+    for n in range(class_amount):
+        # Check if this row will be mutated (If loss of either parent's row is good, mutation doesn't happen)
+        if is_mutated and random.uniform(0, 1) <= (n + 1) / class_amount and\
+                p1['loss-per-class'][n]['class-loss'] >= 0.175 and p2['loss-per-class'][n]['class-loss'] >= 0.175:
+            if n == 0:
+                child_w = np.asarray([abs(np.random.standard_normal(p1['w'][n].shape) * std_dev) + median])
+            else:
+                child_w = np.append(child_w,
+                                    [abs(np.random.standard_normal(p1['w'][n].shape) * std_dev) + median],
+                                    axis=0)
+            is_mutated = False
+            print('Gene has mutated!')
+        else:
+
+            if p1['loss-per-class'][n]['class-loss'] >= p2['loss-per-class'][n]['class-loss']:
+                if n == 0:
+                    child_w = np.asarray([p2['w'][n]])
+                else:
+                    child_w = np.append(child_w, [p2['w'][n]], axis=0)
+            else:
+                if n == 0:
+                    child_w = np.asarray([p1['w'][n]])
+                else:
+                    child_w = np.append(child_w, [p1['w'][n]], axis=0)
+
+    return {'loss': 0,
+            'loss-per-class': np.zeros(class_amount),
+            'w': child_w}
+
+
+# Crossover algorithm
+def crossover(mutation, children_amount, new_blood):
+    global current_generation
+
+    current_generation = np.asarray(sorted(current_generation, key=lambda k: k['loss']))
+    loss_array = get_dict_section(current_generation, 'loss')
+    max_generation_loss = np.max(loss_array)
+
+    loss_array = (max_generation_loss - loss_array)
+    modified_loss_array = loss_array**(loss_array/5)
+    total_generation_loss = np.sum(modified_loss_array)
+
+    if total_generation_loss == 0:
+        fitness_probability_array = np.cumsum(np.zeros(loss_array.size) + (1 / loss_array.size))
+    else:
+        fitness_probability_array = np.cumsum(modified_loss_array / total_generation_loss)
+
+    new_children = np.asarray([])
+
+    for n in range(int(children_amount)):
+        parent_1 = index_of_prob_array(fitness_probability_array, random.uniform(0, 1))
+        parent_2 = index_of_prob_array(fitness_probability_array, random.uniform(0, 1))
+
+        while parent_1 == parent_2:
+            parent_2 = index_of_prob_array(fitness_probability_array, random.uniform(0, 1))
+
+        # print('Crossing parent ' + str(parent_1) + ' with parent ' + str(parent_2))
+        new_child = cross_genes(current_generation[parent_1], current_generation[parent_2], mutation)
+
+        if n == 0:
+            new_children = np.asarray([new_child])
+        else:
+            new_children = np.append(new_children, [new_child])
+
+    new_blood_arr = np.asarray([])
+    for i in range(0, new_blood):
+        if i == 0:
+            new_blood_arr = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)]
+        else:
+            new_blood_arr = np.append(new_blood_arr,
+                                      [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)],
+                                      axis=0)
+
+    current_generation = np.append(np.append(current_generation[:children_amount-new_blood], new_children), new_blood_arr)
+
+
+# Get classify results of a gene against all testing data
 def test_gene(gene):
     gene_results = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), gene['w'])
     lpi = partial_hinge_loss(gene_results)
+    unique_classes = np.unique(get_dict_section(train_data, 'label'))
 
-    gene['loss-per-class'] = partial_hinge_loss(gene_results)
-    gene['loss'] = np.sum(gene['loss-per-class']) / gene['loss-per-class'].size
+    for n in range(0, unique_classes.size):
+        lpi_per_class = get_dict_section(get_all_data_by_class(lpi, unique_classes[n]), 'lpi')
+        if n == 0:
+            gene['loss-per-class'] = [{'class-loss': np.sum(lpi_per_class) / lpi_per_class.size, 'label': unique_classes[n]}]
+        else:
+            gene['loss-per-class'] = np.append(gene['loss-per-class'],
+                                               [{'class-loss': np.sum(lpi_per_class) / lpi_per_class.size,
+                                                 'label': unique_classes[n]}],
+                                               axis=0)
+
+    gene['loss'] = np.sum(get_dict_section(lpi, 'lpi')) / lpi.size
 
     return gene
 
 
-# Classify whole generation
-def test_generation(generation):
+# Classify whole or partial generation
+def test_generation(generation_start=-1, generation_end=-1):
     global current_generation
 
-    vectorized_testing = np.vectorize(test_gene)
-    current_generation = vectorized_testing(current_generation)
+    if (generation_start == -1 and generation_end == -1) or \
+            (generation_start <= 1 and generation_end == -1) or \
+            (generation_end >= int(current_generation.size)-2 and generation_start == -1):
+        current_generation = vectorized_gene_testing(current_generation)
+    else:
+        if generation_end == -1:
+            current_generation = np.append(current_generation[:generation_start],
+                                           vectorized_gene_testing(current_generation[generation_start + 1:]),
+                                           axis=0)
+        elif generation_start == -1:
+            current_generation = np.append(vectorized_gene_testing(current_generation[:generation_end - 1]),
+                                           current_generation[generation_end:],
+                                           axis=0)
+
+    current_generation = np.asarray(sorted(current_generation, key=lambda k: k['loss']))
+
+
+# Get accuracy gene against all testing data
+def gene_accuracy(gene, testing_sample=True):
+    if testing_sample:
+        gene_results = np.apply_along_axis(matrix_mult, 1, get_dict_section(test_data, 'data'), gene['w'])
+        classification_results = np.argmax(gene_results, axis=1)
+        bool_array = classification_results == get_dict_section(test_data, 'label')
+    else:
+        gene_results = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data'), gene['w'])
+        classification_results = np.argmax(gene_results, axis=1)
+        bool_array = classification_results == get_dict_section(train_data, 'label')
+
+    return np.where(bool_array == True)[0].size / bool_array.size
 
 
 # Creates a new gene
@@ -123,16 +305,30 @@ def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.
     if value_selection_method == 'normal':
         return {'loss': 0,
                 'loss-per-class': np.zeros(class_amount),
-                'w': abs(np.random.standard_normal(size=(rows, columns)) * dev) + mean }
+                'w': abs(np.random.standard_normal(size=(rows, columns)) * dev) + mean}
 
 
 # Initialize variables and constants for better performance but keeping flexibility
 def init(population, is_cifar=False, test_data_amount=0):
     global train_data, test_data, class_amount, data_columns_amount
     global median, std_dev, generations_number, current_generation
+    global vectorized_gene_testing, get_all_data_by_class
 
     if is_cifar:
-        return
+        cifar_labels = np.asarray([])
+        cifar_data = np.asarray([])
+        for data_set_index in range(1, train_data_sets_amount + 1):
+            temp_dict = unpickle(data_dir + train_data_set_basename + str(data_set_index))
+
+            if data_set_index == 1:
+                cifar_data = temp_dict[b'data']
+                cifar_labels = temp_dict[b'labels']
+            else:
+                cifar_labels = np.concatenate((train_data['labels'], temp_dict[b'labels']))
+                cifar_data = np.append(train_data['data'], temp_dict[b'data'], axis=0)
+
+        train_data = map_data(cifar_data, cifar_labels)
+        test_data = map_data(unpickle(data_dir + test_data_set_name))
     else:
         # Add 1s to iris data for bias trick
         global iris_train_data
@@ -140,7 +336,7 @@ def init(population, is_cifar=False, test_data_amount=0):
                                       [np.zeros(np.ma.size(np.swapaxes(iris_train_data, 0, 1), axis=1)) + 1],
                                       axis=0), 0, 1)
 
-        mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=False)
+        mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=is_cifar)
         indexes_to_remove = np.random.choice(range(0, mapped_data.size), test_data_amount, replace=False)
 
         test_data = np.take(mapped_data, indexes_to_remove)
@@ -149,10 +345,13 @@ def init(population, is_cifar=False, test_data_amount=0):
         class_amount = np.unique(iris_train_labels).size
         data_columns_amount = np.ma.size(iris_train_data, axis=1)
 
-        median = np.mean(iris_train_data, dtype=np.float32)
-        std_dev = np.std(iris_train_data, dtype=np.float32)
+        median = np.mean(iris_train_data, dtype=np.float32)*2
+        std_dev = np.std(iris_train_data, dtype=np.float32)*2
 
     generations_number = 1
+    vectorized_gene_testing = np.vectorize(test_gene)
+    get_all_data_by_class = np.vectorize(get_data_by_class)
+
     for i in range(0, population):
         if i == 0:
             current_generation = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)]
@@ -162,104 +361,73 @@ def init(population, is_cifar=False, test_data_amount=0):
                                            axis=0)
 
 
-# def create_normal_distribution_per_class():
-#     global data_per_class
-#     get_all_data_by_class = np.vectorize(get_data_by_class)
-#
-#     for i in range(get_dict_section(train_data, 'label').max()):
-#         data_per_class = get_all_data_by_class(train_data, 1)
-#         data_per_class = data_per_class[data_per_class != np.array(None)]
+def genetic_algorithm(population, generations, mutation, children_per_gen,
+                      new_blood_per_gen, test_data_amount=0, is_cifar=False):
+    global generations_number
+
+    init(population, test_data_amount=test_data_amount)
+    test_generation()
+
+    gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
+    gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
+    print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
+          ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
+
+    while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
+        crossover(mutation, children_per_gen, new_blood_per_gen)
+        test_generation(generation_start=children_per_gen-new_blood_per_gen)
+
+        gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
+        gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
+        generations_number = generations_number + 1
+
+        print('Generation ' + str(generations_number) + ' has an average loss of ' +
+              str(gen_median_loss[generations_number-1]) +
+              ' and the best gene has a loss of ' +
+              str(gen_best_gene_loss[generations_number-1]))
+
+        # if current_generation[0]['loss'] <= 0.15:
+        #     print('----------------------------------------------')
+        #     print('---------- ALGORITHM HAS CONVERGED! ----------')
+        #     print('----------------------------------------------')
+        #     print(current_generation[0])
+        #     break
+        # else:
+        # print('Best gene of the generation ------------------------------')
+        # print(current_generation[0])
+        # print(get_dict_section(current_generation, 'loss'))
+        print('----------------------------------------------------------')
+
+    if generations_number < generations:
+        print()
+        print('----------------------------------------------')
+        print('---------- ALGORITHM HAS CONVERGED! ----------')
+        print('----------------------------------------------')
+
+    plt.plot(range(generations_number), gen_median_loss)
+    plt.ylabel('Median Loss')
+    plt.show()
+
+    plt.plot(range(generations_number), gen_best_gene_loss)
+    plt.ylabel('Best Gene Loss')
+    plt.show()
+
+    print(current_generation[0])
+    print()
+    print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
 
 
-# Generate new W from between ranges
-# def generate_w(ranges, amount):
 def main():
-    global iris_train_data
+    test_data_amount = 25
+
     # Hyper-Parameters
     generations = 100
-    population = 100
+    population = 500
     mutation_percentage = 0.01
+    children_per_gen = int(population / 3)
+    new_blood_per_gen = int(population / 6)
 
-    init(population)
-    # print('Test Data -----------------------------------')
-    # print(test_data)
-    # print('Train Data ----------------------------------')
-    # print(train_data)
-    print('Median --------------------------------------')
-    print(median)
-    print('Standard Deviation --------------------------')
-    print(std_dev)
-    print('Rows ----------------------------------------')
-    print(class_amount)
-    print('Columns -------------------------------------')
-    print(data_columns_amount)
-    # print('Gen 1 ---------------------------------------')
-    # print(current_generation)
-    print('Gen 1,0 -------------------------------------')
-    print(current_generation[0])
-    print('Iris 0 --------------------------------------')
-    print(iris_train_data[0])
-    print('Matrix Mult ---------------------------------')
-    print(np.matmul(current_generation[0]['w'], iris_train_data[0]))
-    print('Total Classification Test -------------------')
-    # print(get_dict_section(train_data, 'data'))
-    # vectorized_testing = np.apply_along_axis(matrix_mult, 1, get_dict_section(train_data, 'data')
-    # , current_generation[0]['w'])
-    test_generation(current_generation)
-    print(current_generation)
-    # print(test_gene(current_generation[0])['loss-per-class'].size)
-    # print(np.apply_along_axis(lambda x: for n = range(x.size): if n != 0: x[n] = 0, vectorized_testing))
-
-    # print(train_data)
-    # print(train_labels)
-    # # print(np.amax(train_data, axis=0))
-    # mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=False)
-    # print(mapped_data.size)
-    #
-    # to_remove = np.random.choice(range(150), 25, replace=False)
-    # print(to_remove)
-    #
-    # global test_data
-    # test_data = np.take(mapped_data, to_remove)
-    # mapped_data = np.delete(mapped_data, to_remove)
-    # print('-----------------------')
-    # print(test_data)
-    # print('-----------------------')
-    # print(mapped_data)
-    # print('-----------------------')
-    # get_all_data_by_class = np.vectorize(get_data_by_class)
-    # only_one = get_all_data_by_class(mapped_data, 1)
-    # only_one = only_one[only_one != np.array(None)]
-    # print(only_one)
-    # print(abs(np.random.standard_normal(size=(3, 4))*3)+4)
-    # # all_data = np.apply_along_axis(get_dict_section, 1, only_one, 'data')
-    # # print(np.unique(get_dict_section(mapped_data, 'label')).size)
-    # all_data = get_dict_section(mapped_data, 'label')
-    # # print('fjgfcjgvkvjhbjhjhsadfffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
-    # print(np.unique(all_data).size)
-    # # print(np.swapaxes(all_data, 0, 1))
-    # print(create_gene())
-    # unique, counts = np.unique(all_data[:, 3], return_counts=True)
-    # print('unique: ')
-    # print(unique)
-    # print('counts: ')
-    # print(counts)
-    # print(np.sum(counts))
-    # amounts = np.sum(counts)
-    # probs = np.apply_along_axis(lambda a: a/amounts, 0, counts)
-    # print(probs)
-    # print(np.cumsum(probs))
-    # print(dict(zip(unique, probs)))
-
-    # print(iris_train_data)
-    # print('----------------------------------------------------------')
-    # print(iris_train_data[:, 0])
-    # unique, counts = np.unique(iris_train_data[:, 0], return_counts=True)
-    # print(dict(zip(unique, counts)))
-    # print('----------------------------------------------------------')
-    # print(iris_train_data[:1])
-    # print('----------------------------------------------------------')
-    # print(iris_train_data[1:])
-
+    genetic_algorithm(population, generations, mutation_percentage, children_per_gen,
+                      new_blood_per_gen, test_data_amount, is_cifar=true)
 
 main()
