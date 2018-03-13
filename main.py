@@ -39,31 +39,56 @@ class_amount = 0
 data_columns_amount = 0
 median = 0
 std_dev = 1
+class_array = np.asarray([], dtype=np.uint8)
 
 current_generation = np.asarray([])
 generations_number = 0
 
 
+# Remove n amount of classes from data
+def rem_classes(data, labels, n):
+    global class_array
+    unique_classes = np.unique(labels)
+
+    if unique_classes.size <= n:
+        return
+
+    if class_array.size == 0:
+        class_array = np.take(unique_classes, random.sample(range(unique_classes.size - 1), n))
+
+    indexes_to_take = np.asarray([])
+
+    for i in range(class_array.size):
+        if i == 0:
+            indexes_to_take = np.argwhere(labels == class_array[i])
+        else:
+            indexes_to_take = np.append(indexes_to_take, np.argwhere(labels == class_array[i]), axis=0)
+
+    indexes_to_take = indexes_to_take.reshape(-1)
+
+    return [np.take(data, indexes_to_take, axis=0), np.take(labels, indexes_to_take)]
+
+
 # Pickle greyscaled data
 def pickle(directory, src):
-    #if not Path(directory + greyscale_name + src).is_file():
-    file = unpickle(directory + src)
+    if not Path(directory + greyscale_name + src).is_file():
+        file = unpickle(directory + src)
 
-    new_pickle = {
-        b'batch_label': file[b'batch_label'],
-        b'labels': file[b'labels'],
-        b'filenames': file[b'filenames'],
-        b'data': np.asarray(greyscale_all_data(file[b'data']), dtype=np.int32)
-    }
+        new_pickle = {
+            b'batch_label': file[b'batch_label'],
+            b'labels': file[b'labels'],
+            b'filenames': file[b'filenames'],
+            b'data': np.asarray(greyscale_all_data(file[b'data']), dtype=np.uint8)
+        }
 
-    print(new_pickle[b'data'].shape)
+        print(new_pickle[b'data'].shape)
 
-    with open(directory + greyscale_name + src, 'wb') as fo:
-        pk.dump(new_pickle, fo)
+        with open(directory + greyscale_name + src, 'wb') as fo:
+            pk.dump(new_pickle, fo)
 
-    return new_pickle
-    # else:
-    #     return {}
+        return new_pickle
+    else:
+        return {}
 
 
 # Returns dictionary with unpickled CIFAR data
@@ -92,11 +117,8 @@ def greyscale_pixel(r, g, b):
 
 
 # Generate dictionary with labels, data and ids
-def map_data(data, labels, is_cifar=True):
-    if is_cifar:
-        return []
-    else:
-        return np.asarray(list(map(map_single_row, data, labels)))
+def map_data(data, labels):
+    return np.asarray(list(map(map_single_row, data, labels)))
 
 
 # Generate dictionary array
@@ -141,7 +163,7 @@ def loss_per_image(w_row, label):
     loss = 0
     for n in range(0, w_row.size):
         if n != label:
-            loss = loss + max(0, w_row[n] - w_row[label] + 1)
+            loss = loss + max(0, w_row[n] - w_row[np.argwhere(class_array == label)] + 1)
     return loss
 
 
@@ -309,8 +331,8 @@ def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.
 
 
 # Initialize variables and constants for better performance but keeping flexibility
-def init(population, is_cifar=False, test_data_amount=0):
-    global train_data, test_data, class_amount, data_columns_amount
+def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5):
+    global train_data, test_data, class_amount, data_columns_amount, class_array
     global median, std_dev, generations_number, current_generation
     global vectorized_gene_testing, get_all_data_by_class
 
@@ -324,11 +346,35 @@ def init(population, is_cifar=False, test_data_amount=0):
                 cifar_data = temp_dict[b'data']
                 cifar_labels = temp_dict[b'labels']
             else:
-                cifar_labels = np.concatenate((train_data['labels'], temp_dict[b'labels']))
-                cifar_data = np.append(train_data['data'], temp_dict[b'data'], axis=0)
+                cifar_labels = np.append(cifar_labels, temp_dict[b'labels'], axis=0)
+                cifar_data = np.append(cifar_data, temp_dict[b'data'], axis=0)
+
+        tmp_test_data = unpickle(data_dir + test_data_set_name)
+
+        tmp_test_data_2 = rem_classes(np.asarray(tmp_test_data[b'data'], dtype=np.uint8),
+                                      np.asarray(tmp_test_data[b'labels'], dtype=np.uint8),
+                                      classes_to_remove)
+
+        removed_classes = rem_classes(cifar_data, cifar_labels, classes_to_remove)
+        cifar_data = removed_classes[0]
+        cifar_labels = np.asarray(removed_classes[1], dtype=np.uint8)
+
+        cifar_data = np.asarray(np.swapaxes(np.append(np.swapaxes(cifar_data, 0, 1),
+                                                      [np.zeros(np.ma.size(np.swapaxes(cifar_data, 0, 1), axis=1)) + 1],
+                                                      axis=0), 0, 1), dtype=np.uint8)
 
         train_data = map_data(cifar_data, cifar_labels)
-        test_data = map_data(unpickle(data_dir + test_data_set_name))
+        test_data = map_data(np.asarray(np.swapaxes(np.append(np.swapaxes(tmp_test_data_2[0], 0, 1),
+                                                   [np.zeros(np.ma.size(np.swapaxes(tmp_test_data_2[0], 0, 1),
+                                                                        axis=1)) + 1], axis=0), 0, 1), dtype=np.uint8),
+                             tmp_test_data_2[1])
+
+        median = np.mean(cifar_data, dtype=np.float32)
+        std_dev = np.std(cifar_data, dtype=np.float32)
+
+        class_amount = np.unique(cifar_labels).size
+        data_columns_amount = np.ma.size(cifar_data, axis=1)
+
     else:
         # Add 1s to iris data for bias trick
         global iris_train_data
@@ -336,12 +382,13 @@ def init(population, is_cifar=False, test_data_amount=0):
                                       [np.zeros(np.ma.size(np.swapaxes(iris_train_data, 0, 1), axis=1)) + 1],
                                       axis=0), 0, 1)
 
-        mapped_data = map_data(iris_train_data, iris_train_labels, is_cifar=is_cifar)
+        mapped_data = map_data(iris_train_data, iris_train_labels)
         indexes_to_remove = np.random.choice(range(0, mapped_data.size), test_data_amount, replace=False)
 
         test_data = np.take(mapped_data, indexes_to_remove)
         train_data = np.delete(mapped_data, indexes_to_remove)
 
+        class_array = np.unique(iris_train_labels)
         class_amount = np.unique(iris_train_labels).size
         data_columns_amount = np.ma.size(iris_train_data, axis=1)
 
@@ -365,8 +412,9 @@ def genetic_algorithm(population, generations, mutation, children_per_gen,
                       new_blood_per_gen, test_data_amount=0, is_cifar=False):
     global generations_number
 
-    init(population, test_data_amount=test_data_amount)
+    init(population, test_data_amount=test_data_amount, is_cifar=is_cifar)
     test_generation()
+    print('Time Elapsed: ' + str(time.process_time()/60) + 'm')
 
     gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
     gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
@@ -385,6 +433,7 @@ def genetic_algorithm(population, generations, mutation, children_per_gen,
               str(gen_median_loss[generations_number-1]) +
               ' and the best gene has a loss of ' +
               str(gen_best_gene_loss[generations_number-1]))
+        print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
 
         # if current_generation[0]['loss'] <= 0.15:
         #     print('----------------------------------------------')
@@ -422,12 +471,13 @@ def main():
 
     # Hyper-Parameters
     generations = 100
-    population = 500
+    population = 100
     mutation_percentage = 0.01
     children_per_gen = int(population / 3)
     new_blood_per_gen = int(population / 6)
 
     genetic_algorithm(population, generations, mutation_percentage, children_per_gen,
-                      new_blood_per_gen, test_data_amount, is_cifar=true)
+                      new_blood_per_gen, test_data_amount, is_cifar=True)
+
 
 main()
