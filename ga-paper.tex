@@ -63,10 +63,12 @@ This step is actually different for every single problem since it's basically ad
 \subsubsection{Selection}
 For test and selection, the main score function that was used was the Hinge Loss Function, which is defined as:
 
-\[ s = f(x_i, W) \]
 \[L_{i} = \sum\limits_{j \ne y_i}max(0, s_j - s_{y_i} + 1)\]
+\[ s = f(x_i, W) \]
 
+This means that the total loss \(L\) for the gene \(W\) and all the images \(x\) is the sum of maxes between zero and the difference plus one between the result of the classification \(s_j\) for the known class against each of the remaining classes \(s_y\), with \(j\) being the known image label and \(i\) being each of the images.
 
+Since the loss function returns a score in a way where bigger is worse, as opposite to a normal fitness function, a slight modification was done to the loss scores, substracting the highest loss of the generation to all the genes to have a higher score for better suited genes. 
 
 Formulas used in all cases were the distance between two points (in this case color difference per channel per pixel), as it appears to be different variations for distance between lines or strings for some of these.
 \subsubsection{Chebyshev's Distance Formula}
