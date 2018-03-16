@@ -1,0 +1,203 @@
+\documentclass[conference,compsoc]{IEEEtran}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{float}
+
+\ifCLASSOPTIONcompsoc
+  \usepackage[nocompress]{cite}
+\else
+
+  \usepackage{cite}
+\fi
+
+
+\ifCLASSINFOpdf
+
+\else
+
+\fi
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+
+\begin{document}
+
+\title{Iris \& CIFAR Linear Classification with Genetic Algorithms}
+
+\author{\IEEEauthorblockN{Alejandro Soto González}
+\IEEEauthorblockA{School of Computer Engineering\\
+Instituto Tecnológico de Costa Rica\\
+Cartago, Cartago\\
+Email: al.soto25@gmail.com}}
+
+\maketitle
+
+\begin{abstract}
+The purpose of this project is to see the test the k-Nearest Neighbors algorithm with 2 hyper-parameters on CIFAR-10's set of images. In this instance, the hyper-parameters used were of course \textit{k} and the \textit{distance formula}. For k, the values of 1, 3 and 5 were tested, while for the formulas, Chebyshev's, Manhattan's and Levenshtein's were used. Both hyper-parameters were permuted to see how the results would vary and how they would fare among each other in terms of speed and accuracy. However, as expected, Levenshtein distance formula was not able to compare the whole set, so a much smaller set was used to have a notion about what the formula could do. At the end, while a bit slower than Chebyshev's formula, Manhattan proved to be the most well rounded.
+\end{abstract}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introduction}
+Genetic Algorithms have always been a great optimization technique and since we'll be using a linear classifier, it might be a good way to experiment a bit with how good they are in optimizing the classifier with a \textbf{modified CIFAR-10 set} and \textbf{Iris}. As for hyper-parameters, this algorithm has a lot of flexibility, so most parameterizable things were taken advantage of; from the classic populatio, generations and mutation percentage, to crossover method and fitness score calculation. As much combinations as time allowed were allowed, always looking for the best results and heading that way more as more experiments were made. Due to time restraints, the GPU implementation could not be properly made and preferred to leave it out of the experiments for now since it wasn't the main idea of the project, however duration could be exponentially lowered if correctly implemented.
+
+\section{Methodology}
+\subsection{Environment}
+The whole project was made in \textbf{Python} using \textbf{numpy} library to speed up vector operations, as well as other auxiliary libraries to measure the time like \textbf{timeit} and \textbf{matplotlib} to get graphs to see loss per generation. It was computed in my personal desktop computer which has the following specs (Only relevant ones to experiment given):
+
+\begin{center}
+\begin{tabular}{ c c }
+ \textbf{Processor} & Intel Core i5-6600K @ 3.50GHz \\ 
+ \textbf{Memory} & 16 GB @ 2400MHz \\  
+ \textbf{Storage} & 480 GB SSD
+\end{tabular}
+\end{center}
+
+\subsection{Genetic Algorithm}
+As with any Genetic Algorithm, the steps implemented for this project are: initialization, selection, crossover and then repeat until stop condition is met. Each step of the algorithm has several ways to be implemented and heaily depends on the problem at hand, so the ones that were believed were most fit for the problem were tried.
+
+\subsubsection{Initialization}
+This step is actually different for every single problem since it's basically adapting the data to the whole algorithm. Since first experiments were set to be with Iris, the whole base was made with that dataset and later the modified CIFAR-10 set was modified to match the same structure. Since the classification method is linear with a bias trick, both sets had to be slightly modified (added the 1 to the last column) and then, the rest of the W was initialized using a normal distribution with a mean of 0 for every case and a variance between 0.5 and 1.
+
+\subsubsection{Selection}
+For test and selection, the main score function that was used was the Hinge Loss Function, which is defined as:
+
+\[ s = f(x_i, W) \]
+\[L_{i} = \sum\limits_{j \ne y_i}max(0, s_j - s_{y_i} + 1)\]
+
+
+
+Formulas used in all cases were the distance between two points (in this case color difference per channel per pixel), as it appears to be different variations for distance between lines or strings for some of these.
+\subsubsection{Chebyshev's Distance Formula}
+Distance \textit{d} between two points \textit{a}, \textit{b} is defined as the \textbf{absolute magnitude of the differences between coordinates of a pair of objects}, which in this experiment would replace coordinates for color difference per channel per pixel, with the objects being images. The big O notation of this implementation is whatever numpy's vector sum function is, which we'll assume its $O(n)$.
+
+\vspace{3mm}
+\(d_{a,b} =(max |x_{ai} - y_{bi}|),  \forall i \in a,b, \exists x \in a, \exists y \in b \)
+
+\subsubsection{Manhattan's Distance Formula}
+Similar to Chebyshev's formula, Manhattan's distance \textit{d} between two points \textit{a}, \textit{b} is defined as the \textbf{sum of the differences between coordinates of a pair of objects}. The case for the  big O notation of this implementation is also the same as Chebyshev's, which was assumed to be $O(n)$.
+
+\vspace{3mm}
+\(d_{a,b} = \sum_{i} |x_{ai} - y_{bi}|,  \forall i \in a,b, \exists x \in a, \exists y \in b \)
+
+\subsubsection{Levenshtein's Distance Formula}
+This formula is completely different to the other two and it's mostly used for comparing strings, giving different weights depending if a character needs to be inserted, changed or deleted. The big O notation in this case is $O(n^2)$ as both vectors compares are always the same size, making it exponentially slower than the other two. A distance \textit{d} between two strings \textit{a}, \textit{b} and indexes \textit{i}, \textit{j} for each one respectively is defined as:
+
+
+\[ d_{a,b}(i, j) =
+  \begin{cases}
+    max(i, j)       & \text{if } min(i, j) = 0\\
+    min \{ \\ d_{a,b}(i-1, j) + 1 \\  d_{a,b}(i, j-1) + 1 & \text{else} \\ d_{a,b}(i-1, j-1) + 1_{a_i \neq b_j}  \}
+  \end{cases}
+\]
+\(\forall i \in a_1, \dotsc, a_i, \forall j \in b_1, \dotsc, b_j\)
+
+\subsection{Test/Train Sample}
+For the algorithm training and testing, the \textbf{CIFAR-10} image set was used, which includes a total of \textbf{50,000 images (40,000 for training and 10,000 for testing)} as well as \textbf{10 classes}. All of the images in the set were already classified to easily compare the results of the algorithm against the actual result.
+
+\section{Experiments}
+Initially a total of 9 experiments were set, as that would be the permutation of all the hyper-parameters. Scheduled with the whole 10,000 image test set against the training set of 40,000 images. 
+\begin{enumerate}
+  \item Classification by Chebyshev's distance with k = 1
+  \item Classification by Manhattan's distance with k = 1
+  \item Classification by Levenshtein's distance with k = 1
+  \item Classification by Chebyshev's distance with k = 3
+  \item Classification by Manhattan's distance with k = 3
+  \item Classification by Levenshtein's distance with k = 3
+  \item Classification by Chebyshev's distance with k = 5
+  \item Classification by Manhattan's distance with k = 5
+  \item Classification by Levenshtein's distance with k = 5
+\end{enumerate}
+However after the first batch of results from the first 3 experiments, the experiments had to be changed due to resource limitations. Mostly in the size sample of the testing images for Levenshtein's distance formula.
+\begin{enumerate}
+  \item Classification by Chebyshev's distance with k = 1
+  \item Classification by Manhattan's distance with k = 1
+  \item Classification by Chebyshev's distance with k = 3
+  \item Classification by Manhattan's distance with k = 3
+  \item Classification by Chebyshev's distance with k = 5
+  \item Classification by Manhattan's distance with k = 5
+  \item 5 image sample classification by Levenshtein's distance with k = 1
+  \item 5 image sample classification by Levenshtein's distance with k = 3
+  \item 5 image sample classification by Levenshtein's distance with k = 5
+\end{enumerate}
+On each of these experiments, the accuracy and time elapsed were the main means of measurements used to compare them between each other.
+
+\section{Results} \label{sec:results}
+As previously noted in the Experiments section, the first batch of results changed the way the experiment was tested, specially for Levenshtein's formula. After waiting for around 2 hours and realizing that barely 4 images of the 10,000 were classified. So with the current environment, it would take approximately 32 years to finish the classification of the whole set. Because of this, the accuracy for the Levenshtein's formula was based on a a sample of only 5 images, just to be compared alongside the other 2.
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{time-all.png}
+\caption{Graph of time elapsed in minutes for the permutation of all hyper-parameters.}
+\label{fig:time-all}
+\centering
+\end{figure}
+
+In the Figure \ref{fig:time-all}, the time that all formulast last is compared. However, the amount of time Levenshtein's formula lasted was assumed, calculated from what it lasted classifying 5 images.
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{accuracy-all.png}
+\caption{Graph of accuracy for the permutation of hyper-parameters.}
+\label{fig:accuracy-all}
+\centering
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{misses-all.png}
+\caption{Graph of amount of total misses for the permutation of hyper-parameters.}
+\label{fig:misses-all}
+\centering
+\end{figure}
+
+In the last 2 graphs, the overall accuracy and total misses for the comparison of the whole 10,000 test image set is seen. As Levenshtein's formula resulted impossible to compute with the available resources, it's accuracy was again assumed based on the performance classifying 5 random images. It has to be noted that with such a small sample, results are completely unreliable and not a good source of information about how it would actually bare against the others.
+
+To keep the experiment a bit more precise, the Levenshtein's formula was removed from the results as most of them were assumed based on a very low amount of images classified. So the next 3 graphs show the actual complete results of the experiment with the whole set of images.
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{time-2.png}
+\caption{Graph of accuracy for the permutation of hyper-parameters.}
+\label{fig:accuracy-all}
+\centering
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{misses-2.png}
+\caption{Graph of amount of total misses for the permutation of hyper-parameters.}
+\label{fig:misses-all}
+\centering
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics[width=\linewidth]{accuracy-2.png}
+\caption{Graph of accuracy for the permutation of hyper-parameters.}
+\label{fig:accuracy-all}
+\centering
+\end{figure}
+
+
+\section{Conclusion}
+It's a shame that the resources available to complete the experiment were not enough to see the actual performance of Levenshtein's formula, as it looks very promising at first sight in terms of accuracy. So hypothetically, if enough resources were given and assuming that the result of the 5 image classification is actually an accurate representation of what the algorithm can do in the whole set, it seems like the better choice. It gave pretty consistent results for different values of \textbf{k} as well which is something to have in mind as well. 
+
+Moving into the formulas that could actually finish classifying the whole set, we have Chebyshev's and Manhattan's. The first one seemed to perform better in terms of time, but was very disappointing when it came to accuracy, with a 9.23\% in the best case. The latter was the other way around, performed a bit worse in time, however it's accuracy was more than double than Chebyshev's, with a 24.92\% in the worst case. It's important to note as well that while Chebyshev's algorithm seemed to perform slightly worse with higher values of k, Manhattan's was the other way around.
+
+It's clear the the most well rounded algorithm in this specific experiment is Manhattan's distance as the 7~ minute difference in time elapsed is not big enough of a drawback to justify the low accuracy that Chebyshev's formula gave. And Levenshtein's 40\% assumed accuracy is not good enough either to justify the amount of resources it takes to compute it. This by no means show that any of these formulas are any good at this specific task, as there are algorithms giving 90\% or better results, so a completely different implementation is recommended.
+
+\begin{thebibliography}{1}
+
+\bibitem{IEEEhowto:kopka}
+X.~Décoret (2006), \emph{Manhattan distance of a point and a line}, \hskip 1em plus
+  0.5em minus 0.4em\relax DOI: http://artis.imag.fr/~Xavier.Decoret/resources/maths/manhattan/html/
+
+\bibitem{IEEEhowto:kopka}
+D.~Jurafsky (Unknown Date) \emph{Minimum Edit Distance}, \hskip 1em plus
+  0.5em minus 0.4em\relax DOI: https://web.stanford.edu/class/cs124/lec/med.pdf
+
+\bibitem{IEEEhowto:kopka}
+K.~Teknomo (2017) \emph{Chebyshev distance}, \hskip 1em plus
+  0.5em minus 0.4em\relax DOI: http://people.revoledu.com/kardi/tutorial/Similarity/ChebyshevDistance.html
+
+\end{thebibliography}
+
+\end{document}
+
+
