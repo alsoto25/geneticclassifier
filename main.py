@@ -39,6 +39,7 @@ data_columns_amount = 0
 median = 0
 std_dev = 0.5
 class_array = np.asarray([], dtype=np.uint8)
+class_distribution = {}
 
 current_generation = np.asarray([])
 generations_number = 0
@@ -113,6 +114,10 @@ def greyscale_image(arr):
 
 def greyscale_pixel(r, g, b):
     return int(round(0.2989 * r + 0.5870 * g + 0.1140 * b * 2))
+
+
+def map_distribution(label, data):
+    return {label: data}
 
 
 # Generate dictionary with labels, data and ids
@@ -202,31 +207,31 @@ def cross_genes(p1, p2, mutation):
             is_mutated = False
             print('Gene has mutated!')
         else:
-            halfsize = int(round(p2['w'][n].size / 2))
-
-            if random.uniform(0, 1) <= 0.5:
-                if n == 0:
-                    child_w = np.asarray([np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)])
-                else:
-                    child_w = np.append(child_w, [np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)],
-                                        axis=0)
-            else:
-                if n == 0:
-                    child_w = np.asarray([np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)])
-                else:
-                    child_w = np.append(child_w, [np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)],
-                                        axis=0)
-
-            # if p1['loss-per-class'][n]['class-loss'] >= p2['loss-per-class'][n]['class-loss']:
+            # halfsize = int(round(p2['w'][n].size / 2))
+            #
+            # if random.uniform(0, 1) <= 0.5:
             #     if n == 0:
-            #         child_w = np.asarray([p2['w'][n]])
+            #         child_w = np.asarray([np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)])
             #     else:
-            #         child_w = np.append(child_w, [p2['w'][n]], axis=0)
+            #         child_w = np.append(child_w, [np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)],
+            #                             axis=0)
             # else:
             #     if n == 0:
-            #         child_w = np.asarray([p1['w'][n]])
+            #         child_w = np.asarray([np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)])
             #     else:
-            #         child_w = np.append(child_w, [p1['w'][n]], axis=0)
+            #         child_w = np.append(child_w, [np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)],
+            #                             axis=0)
+
+            if p1['loss-per-class'][n]['class-loss'] >= p2['loss-per-class'][n]['class-loss']:
+                if n == 0:
+                    child_w = np.asarray([p2['w'][n]])
+                else:
+                    child_w = np.append(child_w, [p2['w'][n]], axis=0)
+            else:
+                if n == 0:
+                    child_w = np.asarray([p1['w'][n]])
+                else:
+                    child_w = np.append(child_w, [p1['w'][n]], axis=0)
 
     return {'loss': 0,
             'loss-per-class': np.zeros(class_amount),
@@ -342,32 +347,36 @@ def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.
                 'loss-per-class': np.zeros(class_amount),
                 'w': np.asarray(abs(np.random.standard_normal(size=(rows, columns)) * dev) + mean,
                                 dtype=np.float32)}
+    elif value_selection_method == 'distributed':
+        w = np.asarray([np.random.choice(class_distribution[class_array[0]], columns)], dtype=np.float32)
+
+        for n in range(1, class_array.size):
+            w = np.append(w, [np.random.choice(class_distribution[class_array[n]], columns)], axis=0)
+        return {'loss': 0,
+                'loss-per-class': np.zeros(class_amount),
+                'w': w}
+    elif value_selection_method == 'distributed-column':
+        return {}
 
 
 def get_standard_dist_per_class():
-    unique_labels = np.unique(train_data['labels'])
     res_dict = {}
 
-    for i in range(unique_labels.size):
-        indexes_to_take = np.argwhere(train_data['labels'] == unique_labels[i])
-        data_from_class = np.take(train_data['data'], indexes_to_take, axis=0)
+    for i in range(class_array.size):
+        max_data = np.max(train_data['data'])
+        indexes_to_take = np.argwhere(train_data['labels'] == class_array[i]).flatten()
+        data_from_class = (np.take(train_data['data'], indexes_to_take, axis=0) / max_data).flatten()
 
-        unique, counts = np.unique(data_from_class, return_counts=True)
-        unique = unique / 255
-
-        total = np.sum(counts)
-        counts = counts / total
-
-        res_dict[unique_labels[i]] = map(unique, counts)
+        res_dict[class_array[i]] = data_from_class
 
     return res_dict
 
 
 # Initialize variables and constants for better performance but keeping flexibility
-def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5):
+def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5, value_selection_method='normal'):
     global train_data, test_data, class_amount, data_columns_amount, class_array
     global median, std_dev, generations_number, current_generation
-    global vectorized_gene_testing, get_all_data_by_class
+    global vectorized_gene_testing, get_all_data_by_class, class_distribution
 
     if is_cifar:
         cifar_labels = np.asarray([])
@@ -434,77 +443,81 @@ def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5):
     generations_number = 1
     vectorized_gene_testing = np.vectorize(test_gene)
     get_all_data_by_class = np.vectorize(get_data_by_class)
+    class_distribution = get_standard_dist_per_class()
 
     for i in range(0, population):
         if i == 0:
-            current_generation = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)]
+            current_generation = [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev,
+                                              value_selection_method=value_selection_method)]
         else:
             current_generation = np.append(current_generation,
-                                           [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev)],
+                                           [create_gene(class_amount, data_columns_amount, mean=median, dev=std_dev,
+                                            value_selection_method=value_selection_method)],
                                            axis=0)
 
 
 def genetic_algorithm(population, generations, mutation, children_per_gen,
-                      new_blood_per_gen, test_data_amount=0, is_cifar=False):
+                      new_blood_per_gen, test_data_amount=0, is_cifar=False, value_selection_method='normal'):
     global generations_number
 
-    init(population, test_data_amount=test_data_amount, is_cifar=is_cifar)
-    get_standard_dist_per_class()
+    init(population, test_data_amount=test_data_amount, is_cifar=is_cifar,
+         value_selection_method=value_selection_method)
 
-    # test_generation()
-    # print('Time Elapsed: ' + str(time.process_time()/60) + 'm')
-    #
-    # gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
-    # gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
-    # print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
-    #       ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
-    #
-    # while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
-    #     crossover(mutation, children_per_gen, new_blood_per_gen)
-    #     test_generation(generation_start=children_per_gen-new_blood_per_gen)
-    #
-    #     gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
-    #     gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
-    #     generations_number = generations_number + 1
-    #
-    #     print('Generation ' + str(generations_number) + ' has an average loss of ' +
-    #           str(gen_median_loss[generations_number-1]) +
-    #           ' and the best gene has a loss of ' +
-    #           str(gen_best_gene_loss[generations_number-1]))
-    #     print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
-    #     print('----------------------------------------------------------')
-    #
-    # if generations_number < generations:
-    #     print()
-    #     print('----------------------------------------------')
-    #     print('---------- ALGORITHM HAS CONVERGED! ----------')
-    #     print('----------------------------------------------')
-    #
-    # plt.plot(range(generations_number), gen_median_loss)
-    # plt.ylabel('Median Loss')
-    # plt.show()
-    #
-    # plt.plot(range(generations_number), gen_best_gene_loss)
-    # plt.ylabel('Best Gene Loss')
-    # plt.show()
-    #
-    # print(current_generation[0])
-    # print()
-    # print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
+    test_generation()
+
+    gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
+    gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
+    print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
+          ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
+    print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
+    print('----------------------------------------------------------')
+
+    while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
+        crossover(mutation, children_per_gen, new_blood_per_gen)
+        test_generation(generation_start=children_per_gen-new_blood_per_gen)
+
+        gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
+        gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
+        generations_number = generations_number + 1
+
+        print('Generation ' + str(generations_number) + ' has an average loss of ' +
+              str(gen_median_loss[generations_number-1]) +
+              ' and the best gene has a loss of ' +
+              str(gen_best_gene_loss[generations_number-1]))
+        print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
+        print('----------------------------------------------------------')
+
+    if generations_number < generations:
+        print()
+        print('----------------------------------------------')
+        print('---------- ALGORITHM HAS CONVERGED! ----------')
+        print('----------------------------------------------')
+
+    plt.plot(range(generations_number), gen_median_loss)
+    plt.ylabel('Median Loss')
+    plt.show()
+
+    plt.plot(range(generations_number), gen_best_gene_loss)
+    plt.ylabel('Best Gene Loss')
+    plt.show()
+
+    print(current_generation[0])
+    print()
+    print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
 
 
 def main():
     test_data_amount = 25
 
     # Hyper-Parameters
-    generations = 300
-    population = 100
+    generations = 50
+    population = 60
     mutation_percentage = 0.01
     children_per_gen = int(population / 4)
     new_blood_per_gen = int(population / 4)
 
     genetic_algorithm(population, generations, mutation_percentage, children_per_gen,
-                      new_blood_per_gen, test_data_amount, is_cifar=True)
+                      new_blood_per_gen, test_data_amount, is_cifar=True, value_selection_method='distributed')
 
 
 main()
