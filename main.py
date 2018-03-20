@@ -3,7 +3,7 @@ import pickle as pk
 import numba as nb
 import time
 import random
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.datasets import load_iris
 
@@ -344,6 +344,25 @@ def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.
                                 dtype=np.float32)}
 
 
+def get_standard_dist_per_class():
+    unique_labels = np.unique(train_data['labels'])
+    res_dict = {}
+
+    for i in range(unique_labels.size):
+        indexes_to_take = np.argwhere(train_data['labels'] == unique_labels[i])
+        data_from_class = np.take(train_data['data'], indexes_to_take, axis=0)
+
+        unique, counts = np.unique(data_from_class, return_counts=True)
+        unique = unique / 255
+
+        total = np.sum(counts)
+        counts = counts / total
+
+        res_dict[unique_labels[i]] = map(unique, counts)
+
+    return res_dict
+
+
 # Initialize variables and constants for better performance but keeping flexibility
 def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5):
     global train_data, test_data, class_amount, data_columns_amount, class_array
@@ -430,46 +449,48 @@ def genetic_algorithm(population, generations, mutation, children_per_gen,
     global generations_number
 
     init(population, test_data_amount=test_data_amount, is_cifar=is_cifar)
-    test_generation()
-    print('Time Elapsed: ' + str(time.process_time()/60) + 'm')
+    get_standard_dist_per_class()
 
-    gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
-    gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
-    print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
-          ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
-
-    while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
-        crossover(mutation, children_per_gen, new_blood_per_gen)
-        test_generation(generation_start=children_per_gen-new_blood_per_gen)
-
-        gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
-        gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
-        generations_number = generations_number + 1
-
-        print('Generation ' + str(generations_number) + ' has an average loss of ' +
-              str(gen_median_loss[generations_number-1]) +
-              ' and the best gene has a loss of ' +
-              str(gen_best_gene_loss[generations_number-1]))
-        print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
-        print('----------------------------------------------------------')
-
-    if generations_number < generations:
-        print()
-        print('----------------------------------------------')
-        print('---------- ALGORITHM HAS CONVERGED! ----------')
-        print('----------------------------------------------')
-
-    plt.plot(range(generations_number), gen_median_loss)
-    plt.ylabel('Median Loss')
-    plt.show()
-
-    plt.plot(range(generations_number), gen_best_gene_loss)
-    plt.ylabel('Best Gene Loss')
-    plt.show()
-
-    print(current_generation[0])
-    print()
-    print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
+    # test_generation()
+    # print('Time Elapsed: ' + str(time.process_time()/60) + 'm')
+    #
+    # gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
+    # gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
+    # print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
+    #       ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
+    #
+    # while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
+    #     crossover(mutation, children_per_gen, new_blood_per_gen)
+    #     test_generation(generation_start=children_per_gen-new_blood_per_gen)
+    #
+    #     gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
+    #     gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
+    #     generations_number = generations_number + 1
+    #
+    #     print('Generation ' + str(generations_number) + ' has an average loss of ' +
+    #           str(gen_median_loss[generations_number-1]) +
+    #           ' and the best gene has a loss of ' +
+    #           str(gen_best_gene_loss[generations_number-1]))
+    #     print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
+    #     print('----------------------------------------------------------')
+    #
+    # if generations_number < generations:
+    #     print()
+    #     print('----------------------------------------------')
+    #     print('---------- ALGORITHM HAS CONVERGED! ----------')
+    #     print('----------------------------------------------')
+    #
+    # plt.plot(range(generations_number), gen_median_loss)
+    # plt.ylabel('Median Loss')
+    # plt.show()
+    #
+    # plt.plot(range(generations_number), gen_best_gene_loss)
+    # plt.ylabel('Best Gene Loss')
+    # plt.show()
+    #
+    # print(current_generation[0])
+    # print()
+    # print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
 
 
 def main():
