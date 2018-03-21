@@ -3,7 +3,7 @@ import pickle as pk
 import numba as nb
 import time
 import random
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.datasets import load_iris
 
@@ -71,24 +71,24 @@ def rem_classes(data, labels, n):
 
 # Pickle greyscaled data
 def pickle(directory, src):
-    if not Path(directory + greyscale_name + src).is_file():
-        file = unpickle(directory + src)
+    # if not Path(directory + greyscale_name + src).is_file():
+    file = unpickle(directory + src)
 
-        new_pickle = {
-            b'batch_label': file[b'batch_label'],
-            b'labels': file[b'labels'],
-            b'filenames': file[b'filenames'],
-            b'data': np.asarray(greyscale_all_data(file[b'data']), dtype=np.uint8)
-        }
+    new_pickle = {
+        b'batch_label': file[b'batch_label'],
+        b'labels': file[b'labels'],
+        b'filenames': file[b'filenames'],
+        b'data': np.asarray(greyscale_all_data(file[b'data']), dtype=np.uint8)
+    }
 
-        print(new_pickle[b'data'].shape)
+    print(new_pickle[b'data'].shape)
 
-        with open(directory + greyscale_name + src, 'wb') as fo:
-            pk.dump(new_pickle, fo)
+    with open(directory + greyscale_name + src, 'wb') as fo:
+        pk.dump(new_pickle, fo)
 
-        return new_pickle
-    else:
-        return {}
+    return new_pickle
+    # else:
+    #     return {}
 
 
 # Returns dictionary with unpickled CIFAR data
@@ -207,31 +207,31 @@ def cross_genes(p1, p2, mutation):
             is_mutated = False
             print('Gene has mutated!')
         else:
-            # halfsize = int(round(p2['w'][n].size / 2))
-            #
-            # if random.uniform(0, 1) <= 0.5:
-            #     if n == 0:
-            #         child_w = np.asarray([np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)])
-            #     else:
-            #         child_w = np.append(child_w, [np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)],
-            #                             axis=0)
-            # else:
-            #     if n == 0:
-            #         child_w = np.asarray([np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)])
-            #     else:
-            #         child_w = np.append(child_w, [np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)],
-            #                             axis=0)
+            halfsize = int(round(p2['w'][n].size / 2))
 
-            if p1['loss-per-class'][n]['class-loss'] >= p2['loss-per-class'][n]['class-loss']:
+            if random.uniform(0, 1) <= 0.5:
                 if n == 0:
-                    child_w = np.asarray([p2['w'][n]])
+                    child_w = np.asarray([np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)])
                 else:
-                    child_w = np.append(child_w, [p2['w'][n]], axis=0)
+                    child_w = np.append(child_w, [np.append(p1['w'][n][:halfsize], p2['w'][n][halfsize:], axis=0)],
+                                        axis=0)
             else:
                 if n == 0:
-                    child_w = np.asarray([p1['w'][n]])
+                    child_w = np.asarray([np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)])
                 else:
-                    child_w = np.append(child_w, [p1['w'][n]], axis=0)
+                    child_w = np.append(child_w, [np.append(p2['w'][n][:halfsize], p1['w'][n][halfsize:], axis=0)],
+                                        axis=0)
+
+            # if p1['loss-per-class'][n]['class-loss'] >= p2['loss-per-class'][n]['class-loss']:
+            #     if n == 0:
+            #         child_w = np.asarray([p2['w'][n]])
+            #     else:
+            #         child_w = np.append(child_w, [p2['w'][n]], axis=0)
+            # else:
+            #     if n == 0:
+            #         child_w = np.asarray([p1['w'][n]])
+            #     else:
+            #         child_w = np.append(child_w, [p1['w'][n]], axis=0)
 
     return {'loss': 0,
             'loss-per-class': np.zeros(class_amount),
@@ -247,7 +247,7 @@ def crossover(mutation, children_amount, new_blood):
     max_generation_loss = np.max(loss_array)
 
     loss_array = (max_generation_loss - loss_array)
-    modified_loss_array = loss_array   # **(loss_array/5)
+    modified_loss_array = loss_array  # **(loss_array/5)  # Remove comment for score inflation/punish
     total_generation_loss = np.sum(modified_loss_array)
 
     if total_generation_loss == 0:
@@ -355,8 +355,12 @@ def create_gene(rows, columns, value_selection_method='normal', mean=0.0, dev=1.
         return {'loss': 0,
                 'loss-per-class': np.zeros(class_amount),
                 'w': w}
-    elif value_selection_method == 'distributed-column':
-        return {}
+    else:
+        # Fallback to normal distribution
+        return {'loss': 0,
+                'loss-per-class': np.zeros(class_amount),
+                'w': np.asarray(abs(np.random.standard_normal(size=(rows, columns)) * dev) + mean,
+                                dtype=np.float32)}
 
 
 def get_standard_dist_per_class():
@@ -425,12 +429,12 @@ def init(population, is_cifar=False, test_data_amount=0, classes_to_remove=5, va
                                       [np.zeros(np.ma.size(np.swapaxes(iris_train_data, 0, 1), axis=1)) + 1],
                                       axis=0), 0, 1)
 
-        indexes_to_remove = np.random.choice(range(0, iris_train_data.size), test_data_amount, replace=False)
+        indexes_to_remove = np.random.choice(range(iris_train_labels.size), test_data_amount, replace=False)
 
-        train_data['data'] = np.delete(iris_train_data, indexes_to_remove)
+        train_data['data'] = np.delete(iris_train_data, indexes_to_remove, axis=0)
         train_data['labels'] = np.delete(iris_train_labels, indexes_to_remove)
 
-        test_data['data'] = np.take(iris_train_data, indexes_to_remove)
+        test_data['data'] = np.take(iris_train_data, indexes_to_remove, axis=0)
         test_data['labels'] = np.take(iris_train_labels, indexes_to_remove)
 
         class_array = np.unique(iris_train_labels)
@@ -467,22 +471,30 @@ def genetic_algorithm(population, generations, mutation, children_per_gen,
 
     gen_median_loss = np.asarray([np.average(get_dict_section(current_generation, 'loss'))])
     gen_best_gene_loss = np.asarray([current_generation[0]['loss']])
+    gene_best_accuracy = np.asarray([gene_accuracy(current_generation[0]) * 100])
+
     print('Generation ' + str(generations_number) + ' has an average loss of ' + str(gen_median_loss[0]) +
-          ' and the best gene has a loss of ' + str(gen_best_gene_loss[0]))
+          ' and the best gene has a an accuracy of ' +
+          str(gene_best_accuracy[0]) +
+          ' with a loss of ' +
+          str(gen_best_gene_loss[0]))
     print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
     print('----------------------------------------------------------')
 
-    while generations_number < generations and gen_best_gene_loss[generations_number-1] >= 0.175:
+    while generations_number < generations and gene_best_accuracy[generations_number-1] <= 95:
         crossover(mutation, children_per_gen, new_blood_per_gen)
         test_generation(generation_start=children_per_gen-new_blood_per_gen)
 
         gen_median_loss = np.append(gen_median_loss, [np.average(get_dict_section(current_generation, 'loss'))])
         gen_best_gene_loss = np.append(gen_best_gene_loss, [current_generation[0]['loss']])
+        gene_best_accuracy = np.append(gene_best_accuracy, [gene_accuracy(current_generation[0]) * 100])
         generations_number = generations_number + 1
 
         print('Generation ' + str(generations_number) + ' has an average loss of ' +
               str(gen_median_loss[generations_number-1]) +
-              ' and the best gene has a loss of ' +
+              ' and the best gene has a an accuracy of ' +
+              str(gene_best_accuracy[generations_number - 1]) +
+              ' with a loss of ' +
               str(gen_best_gene_loss[generations_number-1]))
         print('Time Elapsed: ' + str(time.process_time() / 60) + 'm')
         print('----------------------------------------------------------')
@@ -501,23 +513,29 @@ def genetic_algorithm(population, generations, mutation, children_per_gen,
     plt.ylabel('Best Gene Loss')
     plt.show()
 
+    plt.plot(range(generations_number), gene_best_accuracy)
+    plt.ylabel('Best Accuracy')
+    plt.show()
+
     print(current_generation[0])
     print()
     print('Gene accuracy is of ' + str(gene_accuracy(current_generation[0]) * 100) + '%')
 
 
 def main():
-    test_data_amount = 25
+    # pickle(data_dir, test_data_set_name)
+
+    test_data_amount = 50
 
     # Hyper-Parameters
-    generations = 50
-    population = 60
+    generations = 5
+    population = 20
     mutation_percentage = 0.01
-    children_per_gen = int(population / 4)
-    new_blood_per_gen = int(population / 4)
+    children_per_gen = int(population / 3)
+    new_blood_per_gen = int(population / 3)
 
     genetic_algorithm(population, generations, mutation_percentage, children_per_gen,
-                      new_blood_per_gen, test_data_amount, is_cifar=True, value_selection_method='distributed')
+                      new_blood_per_gen, test_data_amount, is_cifar=True, value_selection_method='normal')
 
 
 main()
